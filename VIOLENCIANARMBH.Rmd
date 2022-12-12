@@ -1,0 +1,322 @@
+---
+title: "Ranking da Violência na Região Metropolitana de Belo HOrizonte - Análise Fatorial"
+author: "Janaina Duarte"
+date: "12/12/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## INTRODUCAO
+
+A região metropolitana de Belo Horizonte abrange 34 municípios. 
+Os dados que serão analisados foram fornecidos pelos Dados Abertos da Polícia Militar de Minas Gerais.
+site <http://www.seguranca.mg.gov.br/2018-08-22-13-39-06/dados-abertos>
+A proposta é realização Unsupervised Machine Learning: Análise Fatorial e PCA
+
+
+
+### CARREGAMENTO DOS PACOTES
+```{r}
+pacotes <- c("tidyverse","ggrepel","reshape2","knitr","kableExtra", 
+             "PerformanceAnalytics","factoextra","psych","sp","tmap")
+
+if(sum(as.numeric(!pacotes %in% installed.packages())) != 0){
+  instalador <- pacotes[!pacotes %in% installed.packages()]
+  for(i in 1:length(instalador)) {
+    install.packages(instalador, dependencies = T)
+    break()}
+  sapply(pacotes, require, character = T) 
+} else {
+  sapply(pacotes, require, character = T) 
+}
+```
+
+### CARREGAMENTO DO DATASET
+
+
+```{r}
+library(readxl)
+Teste_analise <- read_excel("C:/Users/Administrador/Desktop/MBA USP/Nao Supervisionada - Fatorial/Teste_analise.xlsx")
+View(Teste_analise)
+```
+
+
+### vISUALIZACAO DA TABELA
+
+```{r}
+Teste_analise %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = TRUE, 
+                font_size = 12)
+```
+
+## PRINCIPAIS ANÁLISES DAS VARIÁVEIS QUANTITATIVAS
+
+
+```{r}
+
+summary(Teste_analise[,2:6])
+```
+
+Observamos que a variável PIB está como string. Por isso, faremos a tranformação.
+
+
+```{r}
+Teste_analise <- transform(Teste_analise, PIB_percapita_2017 = as.numeric(as.factor(PIB_percapita_2017)))
+
+summary(Teste_analise[,2:6])
+
+```
+
+## CORRELAÇÃO DE PEARSON
+
+
+```{r}
+rho <- cor(Teste_analise[,2:6])
+
+Teste_analise[,2:6] %>% 
+  cor() %>% 
+  melt() %>% 
+  rename(Correlação = value) %>%
+  ggplot() +
+  geom_tile(aes(x = Var1, y = Var2, fill = Correlação)) +
+  geom_text(aes(x = Var1, y = Var2, label = format(Correlação, digits = 2)),
+            size = 3) +
+  scale_fill_gradient2(low = "dodgerblue4", 
+                       mid = "white", 
+                       high = "brown",
+                       midpoint = 0) +
+  labs(x = NULL, y = NULL) +
+  theme(panel.background = element_rect("white"),
+        panel.grid = element_line("grey95"),
+        panel.border = element_rect(NA),
+        legend.position = "bottom")
+```
+
+
+###a partir da matriz de Pearson, observamos que nenhuma das variáveis tem relação com o PIB
+retirar a coluna da análise
+
+
+```{r}
+analise <- Teste_analise %>% mutate(PIB_percapita_2017 = NULL)
+
+head(analise)
+```
+
+### visualizando a correlacao
+
+```{r}
+analise[,2:5] %>% 
+  cor() %>% 
+  melt() %>% 
+  rename(Correlação = value) %>%
+  ggplot() +
+  geom_tile(aes(x = Var1, y = Var2, fill = Correlação)) +
+  geom_text(aes(x = Var1, y = Var2, label = format(Correlação, digits = 2)),
+            size = 3) +
+  scale_fill_gradient2(low = "dodgerblue4", 
+                       mid = "white", 
+                       high = "brown",
+                       midpoint = 0) +
+  labs(x = NULL, y = NULL) +
+  theme(panel.background = element_rect("white"),
+        panel.grid = element_line("grey95"),
+        panel.border = element_rect(NA),
+        legend.position = "bottom")
+```
+
+
+
+# Teste da adequabilidade dos dados para PCA (Teste de esfericidade de Bartlett)
+
+```{r}
+cortest.bartlett(analise[,2:5])
+```
+
+# Análise Fatorial por Componentes Principais (PCA)
+```{r}
+
+fatorial <- principal(analise[2:5],
+                      nfactors = length(analise[2:5]),
+                      rotate = "none",
+                      scores = TRUE)
+
+```
+
+# Identificação inicial de todos os autovalores
+```{r}
+eigenvalues <- round(fatorial$values, 5)
+print(eigenvalues)
+sum(eigenvalues)
+
+```
+
+# Quantidade de autovalores maiores que 1 (critério de Kaiser)
+```{r}
+
+k <- sum(eigenvalues > 1)
+print(k)
+
+```
+
+
+
+
+# Definindo a Análise Fatorial por Componentes Principais 1 fator
+
+```{r}
+fatorial <- principal(analise[2:5],
+                      nfactors = k,
+                      rotate = "none",
+                      scores = TRUE)
+```
+
+
+# Identificação da variância compartilhada em cada fator extraído
+
+```{r}
+variancia_compartilhada <- as.data.frame(fatorial$Vaccounted) %>% 
+  slice(1:4)
+
+View(variancia_compartilhada)
+
+rownames(variancia_compartilhada) <- c("Autovalores",
+                                       "Prop. da Variância")
+```
+
+
+# Scree Plot com a proporção da variância compartilhada
+```{r}
+variancia_compartilhada %>%
+  slice(2) %>% 
+  melt() %>% 
+  ggplot(aes(x = variable, 
+             y = value)) + 
+  geom_col(fill = "orange", color = "black") +
+  geom_text(aes(label = paste0(round(value*100, 2),"%") , vjust = -0.1))+
+  labs(x = "Fatores",
+       y = "Variância Compartilhada") +
+  theme_bw()
+
+cargas_fatoriais <- as.data.frame(unclass(fatorial$loadings))
+```
+
+# Visualizando as cargas fatoriais
+```{r}
+
+
+cargas_fatoriais %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = T, 
+                font_size = 12)
+
+comunalidades <- as.data.frame(unclass(fatorial$communality)) %>%
+  rename(comunalidades = 1)
+
+```
+
+
+# Visualizando as Comunalidades
+```{r}
+comunalidades %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = T, 
+                font_size = 12)
+
+
+```
+
+
+# Relatório das cargas fatoriais e das comunalidades
+
+```{r}
+cargas_fatoriais %>%
+  mutate(Comunalidades = rowSums(cargas_fatoriais ^ 2)) %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = T, 
+                font_size = 12)
+
+```
+
+# Plotagem das Cargas Fatoriais
+
+```{r}
+cargas_fatoriais %>%
+  ggplot(aes(x = PC1, y = PC1)) +
+  geom_point(color = "orange") +
+  geom_hline(yintercept = 0, color = "darkorchid") +
+  geom_vline(xintercept = 0, color = "darkorchid") +
+  geom_text_repel(label = row.names(cargas_fatoriais)) +
+  theme_bw()
+```
+
+
+# Identificação dos Scores Fatoriais
+
+```{r}
+scores_fatoriais <- as.data.frame(fatorial$weights)
+```
+
+
+# Visualizando os Scores Fatoriais
+```{r}
+scores_fatoriais %>%
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = T, 
+                
+                font_size = 12)
+
+```
+
+
+
+
+# Cálculo dos fatores extraídos
+```{r}
+fatores <- as.data.frame(fatorial$scores)
+
+analise <- bind_cols(analise,
+                            "fator_1" = fatores$PC1)
+
+View(analise)
+
+
+```
+
+# Proposta de construção de um ranking
+
+# Assumindo-se apenas o F1 como indicador, calcula-se a "pontuação"
+# Trata-se do fator * variância compartilhada por aquele fator
+
+```{r}
+analise <- analise %>% 
+  mutate(pontuacao = fator_1 * variancia_compartilhada$PC1[2])
+```
+```{r}
+
+analise %>%
+  arrange(desc(pontuacao)) %>% 
+  kable() %>%
+  kable_styling(bootstrap_options = "striped", 
+                full_width = T, 
+                font_size = 12)
+
+
+```
+
+### Observamos que o município mais seguro para se viver na Região Metropolitana de Belo Horizonte é Nova União. Os municípios mais violentos são Belo Horizonte, Contagem, Betim e Ribeirão das Neves, nesta ordem.
+
+
+
+
+
+
